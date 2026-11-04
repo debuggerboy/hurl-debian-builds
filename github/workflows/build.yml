@@ -1,0 +1,80 @@
+name: Build Hurl 8.1.0 (Ubuntu 26.04 amd64)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  HURL_VERSION: "8.1.0"
+  ARTIFACT_NAME: "hurl-8.1.0-ubuntu-26.04-amd64.tar.bz2"
+  RELEASE_TAG_MAIN: "latest"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout Hurl at tag
+        uses: actions/checkout@v4
+        with:
+          repository: Orange-OpenSource/hurl
+          ref: ${{ env.HURL_VERSION }}
+          path: hurl-src
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config libssl-dev \
+            libcurl4-openssl-dev libxml2-dev libclang-dev
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Hurl (release)
+        working-directory: hurl-src
+        run: cargo build --release
+
+      - name: Package artifact
+        run: |
+          set -euo pipefail
+          PKG_DIR="hurl-${HURL_VERSION}-ubuntu-26.04-amd64"
+          mkdir -p "${PKG_DIR}/bin"
+          mkdir -p "${PKG_DIR}/share/bash-completion/completions"
+          mkdir -p "${PKG_DIR}/share/man/man1"
+
+          # Binaries
+          cp hurl-src/target/release/hurl    "${PKG_DIR}/bin/"
+          cp hurl-src/target/release/hurlfmt "${PKG_DIR}/bin/"
+
+          # Bash completions (source repo)
+          cp hurl-src/completions/hurl.bash    "${PKG_DIR}/share/bash-completion/completions/hurl"
+          cp hurl-src/completions/hurlfmt.bash "${PKG_DIR}/share/bash-completion/completions/hurlfmt"
+
+          # Man pages (source repo, may be gzipped or plain)
+          cp hurl-src/docs/manual/hurl.1    "${PKG_DIR}/share/man/man1/" 2>/dev/null || \
+            cp hurl-src/docs/manual/hurl.1.gz "${PKG_DIR}/share/man/man1/"
+          cp hurl-src/docs/manual/hurlfmt.1    "${PKG_DIR}/share/man/man1/" 2>/dev/null || \
+            cp hurl-src/docs/manual/hurlfmt.1.gz "${PKG_DIR}/share/man/man1/"
+
+          # Create tarball
+          tar -cjf "${ARTIFACT_NAME}" "${PKG_DIR}"
+          ls -la "${ARTIFACT_NAME}"
+
+      - name: Upload to versioned release (8.1.0)
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.HURL_VERSION }}
+          name: "Hurl ${{ env.HURL_VERSION }} (Ubuntu 26.04 amd64)"
+          files: ${{ env.ARTIFACT_NAME }}
+
+      - name: Upload to main rolling release (latest)
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG_MAIN }}
+          name: "Hurl Latest (Ubuntu 26.04 amd64)"
+          files: ${{ env.ARTIFACT_NAME }}
+          overwrite_files: true
